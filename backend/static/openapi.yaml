@@ -1,0 +1,839 @@
+openapi: 3.0.3
+info:
+  title: Gingerly API
+  description: Email notification platform — send individual and bulk emails to contacts and groups.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:5001/api
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email_address:
+          type: string
+        phone_number:
+          type: string
+        role:
+          type: string
+          enum: [normal, admin]
+        is_superuser:
+          type: boolean
+        plan:
+          type: string
+          enum: [free, gold]
+        created_at:
+          type: string
+          format: date-time
+
+    Contact:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    Email:
+      type: object
+      properties:
+        id:
+          type: integer
+        sender_id:
+          type: integer
+        contact_id:
+          type: integer
+        contact:
+          $ref: '#/components/schemas/Contact'
+        subject:
+          type: string
+        body:
+          type: string
+        status:
+          type: string
+          enum: [sent, failed, pending]
+        created_at:
+          type: string
+          format: date-time
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Group:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        contact_count:
+          type: integer
+        contacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Contact'
+        created_at:
+          type: string
+          format: date-time
+
+    GroupEmailStatus:
+      type: object
+      properties:
+        total:
+          type: integer
+        sent:
+          type: integer
+        pending:
+          type: integer
+        failed_count:
+          type: integer
+        failed_contacts:
+          type: array
+          items:
+            type: object
+            properties:
+              contact_id:
+                type: integer
+              contact:
+                $ref: '#/components/schemas/Contact'
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [first_name, last_name, email_address, phone_number, password]
+              properties:
+                first_name:
+                  type: string
+                  example: John
+                last_name:
+                  type: string
+                  example: Doe
+                email_address:
+                  type: string
+                  example: john@example.com
+                phone_number:
+                  type: string
+                  example: "08012345678"
+                password:
+                  type: string
+                  example: secret123
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Missing fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email_address, password]
+              properties:
+                email_address:
+                  type: string
+                  example: john@example.com
+                password:
+                  type: string
+                  example: secret123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (invalidates session on client)
+      responses:
+        '200':
+          description: Logged out successfully
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get the currently authenticated user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+
+  /contacts:
+    get:
+      tags: [Contacts]
+      summary: List all contacts for the current user
+      responses:
+        '200':
+          description: List of contacts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contacts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Contact'
+    post:
+      tags: [Contacts]
+      summary: Add a new contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name:
+                  type: string
+                  example: Jane Doe
+                email:
+                  type: string
+                  example: jane@example.com
+                phone:
+                  type: string
+                  example: "08099999999"
+      responses:
+        '201':
+          description: Contact added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  contact:
+                    $ref: '#/components/schemas/Contact'
+        '400':
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /contacts/{id}:
+    put:
+      tags: [Contacts]
+      summary: Update a contact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                phone:
+                  type: string
+      responses:
+        '200':
+          description: Contact updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  contact:
+                    $ref: '#/components/schemas/Contact'
+        '404':
+          description: Contact not found
+    delete:
+      tags: [Contacts]
+      summary: Delete a contact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Contact deleted
+        '404':
+          description: Contact not found
+
+  /emails:
+    get:
+      tags: [Emails]
+      summary: List sent email history for the current user
+      responses:
+        '200':
+          description: List of emails
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  emails:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Email'
+    post:
+      tags: [Emails]
+      summary: Send an email to a contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact_id, subject, body]
+              properties:
+                contact_id:
+                  type: integer
+                  example: 1
+                subject:
+                  type: string
+                  example: Hello there
+                body:
+                  type: string
+                  example: Just wanted to reach out.
+      responses:
+        '201':
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  email:
+                    $ref: '#/components/schemas/Email'
+        '400':
+          description: Missing fields
+        '404':
+          description: Contact not found
+
+  /emails/{id}:
+    delete:
+      tags: [Emails]
+      summary: Delete a sent email
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Email deleted
+        '404':
+          description: Email not found
+
+  /emails/{id}/retry:
+    post:
+      tags: [Emails]
+      summary: Retry a failed email (Gold plan only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Retry result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  email:
+                    $ref: '#/components/schemas/Email'
+        '400':
+          description: Email is not in failed state
+        '403':
+          description: Gold plan required
+
+  /groups:
+    get:
+      tags: [Groups]
+      summary: List all groups (Gold plan only)
+      responses:
+        '200':
+          description: List of groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Group'
+        '403':
+          description: Gold plan required
+    post:
+      tags: [Groups]
+      summary: Create a new group (Gold plan only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: Marketing Team
+      responses:
+        '201':
+          description: Group created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  group:
+                    $ref: '#/components/schemas/Group'
+        '403':
+          description: Gold plan required
+
+  /groups/{id}:
+    delete:
+      tags: [Groups]
+      summary: Delete a group (Gold plan only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Group deleted
+        '403':
+          description: Gold plan required
+        '404':
+          description: Group not found
+
+  /groups/{id}/contacts:
+    post:
+      tags: [Groups]
+      summary: Add a contact to a group (Gold plan only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact_id]
+              properties:
+                contact_id:
+                  type: integer
+                  example: 1
+      responses:
+        '200':
+          description: Contact added to group
+        '403':
+          description: Gold plan required
+        '404':
+          description: Group or contact not found
+        '409':
+          description: Contact already in group
+
+  /groups/{id}/contacts/{contact_id}:
+    delete:
+      tags: [Groups]
+      summary: Remove a contact from a group (Gold plan only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Contact removed from group
+        '403':
+          description: Gold plan required
+        '404':
+          description: Group, contact, or membership not found
+
+  /groups/{id}/emails:
+    get:
+      tags: [Groups]
+      summary: List all email campaigns sent to a group (Gold plan only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of group emails with delivery status
+    post:
+      tags: [Groups]
+      summary: Send an email to all contacts in a group (Gold plan only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, body]
+              properties:
+                subject:
+                  type: string
+                  example: Team Update
+                body:
+                  type: string
+                  example: Please review the latest report.
+      responses:
+        '201':
+          description: Group email sent with delivery breakdown
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  group_email:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      subject:
+                        type: string
+                      status:
+                        $ref: '#/components/schemas/GroupEmailStatus'
+        '400':
+          description: Group has no contacts
+        '403':
+          description: Gold plan required
+
+  /groups/{id}/emails/{email_id}/status:
+    get:
+      tags: [Groups]
+      summary: Get delivery status of a group email (Gold plan only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: email_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Delivery status breakdown
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    $ref: '#/components/schemas/GroupEmailStatus'
+        '403':
+          description: Gold plan required
+        '404':
+          description: Group email not found
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List all users (Admin only)
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+        '403':
+          description: Admin access required
+
+  /admin/users/{id}:
+    get:
+      tags: [Admin]
+      summary: Get a user with their full email history (Admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User with emails
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    allOf:
+                      - $ref: '#/components/schemas/User'
+                      - type: object
+                        properties:
+                          emails:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Email'
+        '403':
+          description: Admin access required
+        '404':
+          description: User not found
+    delete:
+      tags: [Admin]
+      summary: Delete a user and all associated data (Admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User deleted
+        '400':
+          description: Cannot delete your own account
+        '403':
+          description: Admin access required
+        '404':
+          description: User not found
+
+  /admin/users/{id}/upgrade:
+    post:
+      tags: [Admin]
+      summary: Upgrade a user to Gold plan (Superuser only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User upgraded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '403':
+          description: Superuser access required
+
+  /admin/users/{id}/downgrade:
+    post:
+      tags: [Admin]
+      summary: Downgrade a user to Free plan (Superuser only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User downgraded
+        '403':
+          description: Superuser access required
+
+  /admin/users/{id}/grant-admin:
+    post:
+      tags: [Admin]
+      summary: Grant admin role to a user (Superuser only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Admin access granted
+        '403':
+          description: Superuser access required
+
+  /admin/users/{id}/revoke-admin:
+    post:
+      tags: [Admin]
+      summary: Revoke admin role from a user (Superuser only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Admin access revoked
+        '400':
+          description: Cannot revoke your own admin access
+        '403':
+          description: Superuser access required
+
+  /admin/users/{id}/grant-superuser:
+    post:
+      tags: [Admin]
+      summary: Grant superuser rights to an admin (Superuser only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Superuser rights granted
+        '400':
+          description: User must be an admin first
+        '403':
+          description: Superuser access required
+
+  /admin/users/{id}/revoke-superuser:
+    post:
+      tags: [Admin]
+      summary: Revoke superuser rights from an admin (Superuser only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Superuser rights revoked
+        '400':
+          description: Cannot revoke your own superuser rights
+        '403':
+          description: Superuser access required
